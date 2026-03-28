@@ -216,10 +216,9 @@ def build_sqlite_db(dataframes: dict[str, pd.DataFrame], db_path: str):
 
 
 # ============================================================
-# TIMER TRIGGER — Runs daily at 01:30 UTC (7:00 AM IST)
-# 1 hour after meta-ads & shopify data functions complete
+# TIMER TRIGGER — Runs every hour
 # ============================================================
-@app.timer_trigger(schedule="0 30 1 * * *", arg_name="myTimer", run_on_startup=False)
+@app.timer_trigger(schedule="0 0 * * * *", arg_name="myTimer", run_on_startup=False)
 def SqlDbBuilder(myTimer: func.TimerRequest) -> None:
     logging.info("SqlDbBuilder triggered — building SQLite DB from blob CSVs.")
 

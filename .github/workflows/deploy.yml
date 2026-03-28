@@ -7,7 +7,7 @@ on:
 
 env:
   AZURE_FUNCTIONAPP_NAME: 'sqldb-creator-dravya'
-  PYTHON_VERSION: '3.12'
+  PYTHON_VERSION: '3.11'
 
 jobs:
   build-and-deploy:

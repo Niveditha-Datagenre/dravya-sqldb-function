@@ -14,12 +14,18 @@ app = func.FunctionApp()
 # ============================================================
 BLOB_CONTAINER = "raw"
 
-# Mapping: blob CSV path → SQLite table name
-CSV_TABLE_MAP = {
-    "metaads/campaigns.csv": "meta_campaign_insights",
-    "metaads/adsets.csv": "meta_adset_insights",
-    "metaads/ads.csv": "meta_ad_insights",
-    "metaads/daily_spend.csv": "meta_daily_insights",
+# Meta CSVs: filename → SQLite table name (read from each account subfolder)
+META_CSV_TABLE_MAP = {
+    "campaigns.csv": "meta_campaign_insights",
+    "adsets.csv": "meta_adset_insights",
+    "ads.csv": "meta_ad_insights",
+    "daily_spend.csv": "meta_daily_insights",
+}
+
+META_BLOB_PREFIX = "metaads"
+
+# Non-meta CSVs: full blob path → SQLite table name
+OTHER_CSV_TABLE_MAP = {
     "shopify/orders.csv": "shopify_orders",
 }
 
@@ -31,6 +37,7 @@ DB_FILENAME = "dravya.db"
 # ============================================================
 COLUMN_DESCRIPTIONS = {
     "meta_campaign_insights": {
+        "account_name": "Name of the Meta ad account (e.g. dravya-ma, dravya-vds)",
         "campaign_name": "Name of the Meta (Facebook/Instagram) ad campaign",
         "campaign_id": "Unique identifier for the campaign in Meta Ads",
         "objective": "Campaign objective type (e.g. OUTCOME_SALES)",
@@ -46,6 +53,7 @@ COLUMN_DESCRIPTIONS = {
         "checkouts": "Number of checkout initiated events attributed to the campaign",
     },
     "meta_adset_insights": {
+        "account_name": "Name of the Meta ad account (e.g. dravya-ma, dravya-vds)",
         "campaign_name": "Name of the parent campaign this ad set belongs to",
         "adset_name": "Name of the ad set (audience/targeting group)",
         "adset_id": "Unique identifier for the ad set in Meta Ads",
@@ -58,6 +66,7 @@ COLUMN_DESCRIPTIONS = {
         "checkouts": "Number of checkout initiated events attributed to the ad set",
     },
     "meta_ad_insights": {
+        "account_name": "Name of the Meta ad account (e.g. dravya-ma, dravya-vds)",
         "campaign_name": "Name of the parent campaign this ad belongs to",
         "adset_name": "Name of the parent ad set this ad belongs to",
         "ad_name": "Name/title of the individual ad creative",
@@ -71,6 +80,7 @@ COLUMN_DESCRIPTIONS = {
         "checkouts": "Number of checkout initiated events attributed to this ad",
     },
     "meta_daily_insights": {
+        "account_name": "Name of the Meta ad account (e.g. dravya-ma, dravya-vds)",
         "date": "Date of the daily aggregated metrics (YYYY-MM-DD format)",
         "spend": "Total amount spent across all campaigns on this date",
         "impressions": "Total number of ad impressions on this date",
@@ -140,6 +150,18 @@ def download_csv_from_blob(blob_service_client, blob_path: str) -> pd.DataFrame:
     csv_bytes = blob_client.download_blob().readall()
     csv_text = csv_bytes.decode("utf-8")
     return pd.read_csv(StringIO(csv_text))
+
+
+def discover_account_folders(blob_service_client) -> list:
+    """Discover account subfolders under metaads/ in blob storage."""
+    container_client = blob_service_client.get_container_client(BLOB_CONTAINER)
+    folders = set()
+    for blob in container_client.list_blobs(name_starts_with=f"{META_BLOB_PREFIX}/"):
+        parts = blob.name.split("/")
+        # Pattern: metaads/<account_name>/filename.csv
+        if len(parts) >= 3:
+            folders.add(parts[1])
+    return sorted(folders)
 
 
 def upload_file_to_blob(blob_service_client, local_path: str, blob_path: str):
@@ -228,9 +250,28 @@ def SqlDbBuilder(myTimer: func.TimerRequest) -> None:
         logging.error(str(e))
         return
 
-    # --- 1. Download all CSVs from blob ---
+    # --- 1a. Discover account folders and download/merge meta CSVs ---
     dataframes: dict[str, pd.DataFrame] = {}
-    for blob_path, table_name in CSV_TABLE_MAP.items():
+    account_folders = discover_account_folders(blob_service_client)
+    logging.info(f"Found meta ad account folders: {account_folders}")
+
+    for csv_file, table_name in META_CSV_TABLE_MAP.items():
+        merged_dfs = []
+        for account_name in account_folders:
+            blob_path = f"{META_BLOB_PREFIX}/{account_name}/{csv_file}"
+            try:
+                df = download_csv_from_blob(blob_service_client, blob_path)
+                df.insert(0, "account_name", account_name)
+                merged_dfs.append(df)
+                logging.info(f"Downloaded {blob_path} ({len(df)} rows)")
+            except Exception as e:
+                logging.warning(f"Skipped {blob_path}: {e}")
+        if merged_dfs:
+            dataframes[table_name] = pd.concat(merged_dfs, ignore_index=True)
+            logging.info(f"Merged {table_name}: {len(dataframes[table_name])} total rows from {len(merged_dfs)} account(s)")
+
+    # --- 1b. Download non-meta CSVs (shopify, etc.) ---
+    for blob_path, table_name in OTHER_CSV_TABLE_MAP.items():
         try:
             df = download_csv_from_blob(blob_service_client, blob_path)
             dataframes[table_name] = df

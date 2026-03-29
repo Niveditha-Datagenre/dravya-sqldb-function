@@ -27,11 +27,14 @@ jobs:
           pip install --upgrade pip
           pip install -r requirements.txt --target=".python_packages/lib/site-packages" --platform manylinux2014_x86_64 --only-binary=:all:
 
+      - name: Zip package
+        run: zip -r deploy.zip . -x ".git/*" ".github/*" ".venv/*" "__pycache__/*" "python=3.11/*" "local.settings.json" ".vscode/*" "uv.lock" "pyproject.toml" "main.py" ".python-version" "README.md"
+
       - name: Deploy to Azure Functions
         uses: Azure/functions-action@v1
         with:
           app-name: ${{ env.AZURE_FUNCTIONAPP_NAME }}
-          package: '.'
+          package: 'deploy.zip'
           publish-profile: ${{ secrets.AZURE_FUNCTIONAPP_PUBLISH_PROFILE }}
           scm-do-build-during-deployment: 'false'
           enable-oryx-build: 'false'

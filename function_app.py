@@ -31,6 +31,7 @@ OTHER_CSV_TABLE_MAP = {
 
 DB_BLOB_FOLDER = "sqldb"
 DB_FILENAME = "dravya.db"
+DB_BLOB_CONTAINER = "app-dravya-bi-backend-storage"
 
 # ============================================================
 # COLUMN DESCRIPTIONS METADATA
@@ -164,9 +165,9 @@ def discover_account_folders(blob_service_client) -> list:
     return sorted(folders)
 
 
-def upload_file_to_blob(blob_service_client, local_path: str, blob_path: str):
+def upload_file_to_blob(blob_service_client, local_path: str, blob_path: str, container: str = BLOB_CONTAINER):
     """Upload a local file to Azure Blob Storage."""
-    container_client = blob_service_client.get_container_client(BLOB_CONTAINER)
+    container_client = blob_service_client.get_container_client(container)
 
     try:
         container_client.create_container()
@@ -296,9 +297,9 @@ def SqlDbBuilder(myTimer: func.TimerRequest) -> None:
         # --- 3. Upload DB to blob ---
         blob_path = f"{DB_BLOB_FOLDER}/{DB_FILENAME}"
         try:
-            upload_file_to_blob(blob_service_client, db_path, blob_path)
+            upload_file_to_blob(blob_service_client, db_path, blob_path, DB_BLOB_CONTAINER)
             logging.info(
-                f"Successfully uploaded SQLite DB to {BLOB_CONTAINER}/{blob_path}"
+                f"Successfully uploaded SQLite DB to {DB_BLOB_CONTAINER}/{blob_path}"
             )
         except Exception as e:
             logging.error(f"Failed to upload DB to blob: {e}")
